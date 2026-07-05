@@ -25,7 +25,7 @@ export function useMixEngine() {
   const [userFileName, setUserFileName] = useState<string | null>(null)
   const [objectUrl, setObjectUrl] = useState<string | null>(null)
   const [previewSamples, setPreviewSamples] = useState<{ left: Float32Array; right: Float32Array } | null>(null)
-  const [useCompensated, setUseCompensated] = useState(false)
+  const [useCompensated, setUseCompensated] = useState(true)
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const objectUrlRef = useRef<string | null>(null)

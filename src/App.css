@@ -125,6 +125,8 @@ body {
   padding: 0.6rem 1.2rem;
   cursor: pointer;
   font-size: 0.9rem;
+  min-width: 14.5em;
+  text-align: center;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
@@ -259,6 +261,8 @@ body {
   padding: 0.75rem 1.5rem;
   border-radius: 8px;
   font-weight: 600;
+  min-width: 8em;
+  text-align: center;
 }
 
 .export-button--disabled {
@@ -340,7 +344,18 @@ body {
   padding: 0.6rem 1.2rem;
   cursor: pointer;
   font-size: 0.9rem;
+  min-width: 8em;
+  text-align: center;
   transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+/* Its own (larger) min-width: this button's label toggles between "▶ この範囲を試聴"
+   and "■ 停止" depending on state, so it needs room for the longer of the two.
+   Selector includes the element type to outweigh ".part-recorder__decision button"
+   above (same specificity would otherwise lose despite coming later, since this
+   button is nested inside .part-recorder__decision). */
+button.part-recorder__preview-button {
+  min-width: 12em;
 }
 
 .part-recorder__time-fields button:disabled,
@@ -369,6 +384,13 @@ body {
   font-size: 0.9rem;
   opacity: 0.8;
   width: 100%;
+}
+
+/* Same specificity-override reason as button.part-recorder__preview-button above:
+   these three buttons are nested inside .part-recorder__decision too, so this
+   needs the element selector to win over ".part-recorder__decision button"'s 8em. */
+button.part-recorder__decision-button {
+  min-width: 10em;
 }
 
 .part-recorder__decision-button--a {
