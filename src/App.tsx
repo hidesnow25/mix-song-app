@@ -1,6 +1,5 @@
 import { useMixEngine } from './hooks/useMixEngine'
 import { FileDropZone } from './components/FileDropZone'
-import { WaveformTrack } from './components/WaveformTrack'
 import { MixControls } from './components/MixControls'
 import { PreviewPlayer } from './components/PreviewPlayer'
 import { ExportButton } from './components/ExportButton'
@@ -14,7 +13,6 @@ export default function App() {
     exportFormat,
     setExportFormat,
     loadFile,
-    setRegions,
     objectUrl,
     isProcessing,
     error,
@@ -32,11 +30,9 @@ export default function App() {
       <section className="tracks">
         <div className="tracks__row">
           <FileDropZone label="音声ファイル A" file={trackAFile} onFileSelected={(file) => loadFile('A', file)} />
-          <WaveformTrack label="A" file={trackAFile} onRegionsChange={(regions) => setRegions('A', regions)} />
         </div>
         <div className="tracks__row">
           <FileDropZone label="音声ファイル B" file={trackBFile} onFileSelected={(file) => loadFile('B', file)} />
-          <WaveformTrack label="B" file={trackBFile} onRegionsChange={(regions) => setRegions('B', regions)} />
         </div>
       </section>
 
@@ -46,7 +42,12 @@ export default function App() {
 
       <section className="app__output">
         <PreviewPlayer objectUrl={objectUrl} isProcessing={isProcessing} />
-        <ExportButton objectUrl={objectUrl} exportFormat={exportFormat} onExportFormatChange={setExportFormat} />
+        <ExportButton
+          objectUrl={objectUrl}
+          exportFormat={exportFormat}
+          onExportFormatChange={setExportFormat}
+          isProcessing={isProcessing}
+        />
       </section>
     </div>
   )

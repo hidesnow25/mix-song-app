@@ -3,4 +3,4 @@ export interface SilenceRegion {
   end: number
 }
 
-export type MixPreset = 'left' | 'right' | 'both'
+export type MixPreset = 'separate' | 'together'

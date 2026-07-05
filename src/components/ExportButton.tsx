@@ -4,9 +4,12 @@ interface ExportButtonProps {
   objectUrl: string | null
   exportFormat: ExportFormat
   onExportFormatChange: (format: ExportFormat) => void
+  isProcessing: boolean
 }
 
-export function ExportButton({ objectUrl, exportFormat, onExportFormatChange }: ExportButtonProps) {
+export function ExportButton({ objectUrl, exportFormat, onExportFormatChange, isProcessing }: ExportButtonProps) {
+  const disabled = !objectUrl || isProcessing
+
   return (
     <div className="export-controls">
       <select
@@ -22,12 +25,12 @@ export function ExportButton({ objectUrl, exportFormat, onExportFormatChange }: 
         ))}
       </select>
       <a
-        className={`export-button${objectUrl ? '' : ' export-button--disabled'}`}
-        href={objectUrl ?? undefined}
-        download={objectUrl ? `mixed-song.${exportFormat}` : undefined}
-        aria-disabled={!objectUrl}
+        className={`export-button${disabled ? ' export-button--disabled' : ''}`}
+        href={disabled ? undefined : objectUrl}
+        download={disabled ? undefined : `mixed-song.${exportFormat}`}
+        aria-disabled={disabled}
         onClick={(event) => {
-          if (!objectUrl) event.preventDefault()
+          if (disabled) event.preventDefault()
         }}
       >
         ダウンロード ({exportFormat.toUpperCase()})

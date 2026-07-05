@@ -45,16 +45,12 @@ describe('applySilence', () => {
 })
 
 describe('presetToMixParams', () => {
-  it('maps left preset to only file A, panned fully left', () => {
-    expect(presetToMixParams('left')).toEqual({ panA: 0, volumeA: 1, panB: 0, volumeB: 0 })
+  it('maps "separate" to A-left, B-right stereo separation with both active', () => {
+    expect(presetToMixParams('separate')).toEqual({ panA: 0, volumeA: 1, panB: 1, volumeB: 1 })
   })
 
-  it('maps right preset to only file B, panned fully right', () => {
-    expect(presetToMixParams('right')).toEqual({ panA: 1, volumeA: 0, panB: 1, volumeB: 1 })
-  })
-
-  it('maps both preset to A-left, B-right stereo separation with both active', () => {
-    expect(presetToMixParams('both')).toEqual({ panA: 0, volumeA: 1, panB: 1, volumeB: 1 })
+  it('maps "together" to both files centered (audible from both channels)', () => {
+    expect(presetToMixParams('together')).toEqual({ panA: 0.5, volumeA: 1, panB: 0.5, volumeB: 1 })
   })
 })
 
@@ -81,6 +77,23 @@ describe('mixTracks', () => {
     const { left, right } = mixTracks(a, 0, 1, b, 0, 0)
     expect(left[0]).toBeCloseTo(0.5, 5)
     expect(right[0]).toBeCloseTo(0, 5)
+  })
+
+  it('produces exactly zero leakage into the opposite channel for hard-panned (0/1) tracks, even after 16-bit PCM quantization', () => {
+    // Regression test: a hard-left-panned track (pan=0) must not audibly bleed
+    // into the right channel. cos(0)=1/sin(0)=0 exactly, so this should hold
+    // bit-for-bit, not just approximately. (Any perceived bleed when listening
+    // to a real export is therefore not from this mixing math — see README.)
+    const a = new Float32Array(50).fill(1)
+    const b = new Float32Array(50).fill(0)
+    const { right } = mixTracks(a, 0, 1, b, 1, 0)
+    expect(right.every((sample) => sample === 0)).toBe(true)
+
+    const wav = encodeWavPCM16(new Float32Array(50), right, 1000)
+    const view = new DataView(wav)
+    for (let i = 0; i < 50; i++) {
+      expect(view.getInt16(44 + i * 4 + 2, true)).toBe(0)
+    }
   })
 
   it('pads the shorter track with silence instead of truncating', () => {
@@ -126,7 +139,7 @@ describe('encodeWavPCM16', () => {
 })
 
 describe('encodeMp3', () => {
-  it('produces a non-empty MP3 buffer starting with a valid frame sync', () => {
+  it('produces a non-empty MP3 buffer starting with a valid frame sync', async () => {
     const sampleRate = 44100
     const numFrames = sampleRate // 1 second
     const left = new Float32Array(numFrames)
@@ -136,7 +149,7 @@ describe('encodeMp3', () => {
       right[i] = left[i]
     }
 
-    const buffer = encodeMp3(left, right, sampleRate)
+    const buffer = await encodeMp3(left, right, sampleRate)
     expect(buffer.byteLength).toBeGreaterThan(0)
 
     // MP3 frames start with an 11-bit frame sync: 0xFF followed by top 3 bits set
@@ -189,7 +202,7 @@ describe('renderMix', () => {
     expect(result.sampleRate).toBe(1000)
   })
 
-  it('excludes track B entirely when its volume is 0 (e.g. "left" preset)', () => {
+  it('excludes track B entirely when its volume is 0', () => {
     const monoA = new Float32Array(10).fill(0.4)
     const monoB = new Float32Array(10).fill(0.9)
     const result = renderMix({

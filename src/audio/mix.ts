@@ -1,12 +1,12 @@
 import type { MixPreset } from './types'
 
 /**
- * Maps the 3 discrete UI presets onto a per-file (pan, volume) pair that a
- * future balance slider would drive continuously. `volume` gates whether a
- * file is heard at all: "left"/"right" solo one file to one channel and
- * exclude the other entirely (not just route it away), while "both" pans
- * file A fully left and file B fully right so each take is isolated to its
- * own channel (e.g. for building harmony/solo-split mixes).
+ * Maps the 2 discrete UI presets onto a per-file (pan, volume) pair that a
+ * future balance slider would drive continuously.
+ * - "separate": file A isolated to the left channel, file B isolated to the
+ *   right (e.g. for building harmony/solo-split mixes).
+ * - "together": both files are panned to center, so both are audible from
+ *   both channels.
  */
 export function presetToMixParams(preset: MixPreset): {
   panA: number
@@ -15,12 +15,10 @@ export function presetToMixParams(preset: MixPreset): {
   volumeB: number
 } {
   switch (preset) {
-    case 'left':
-      return { panA: 0, volumeA: 1, panB: 0, volumeB: 0 }
-    case 'right':
-      return { panA: 1, volumeA: 0, panB: 1, volumeB: 1 }
-    case 'both':
+    case 'separate':
       return { panA: 0, volumeA: 1, panB: 1, volumeB: 1 }
+    case 'together':
+      return { panA: 0.5, volumeA: 1, panB: 0.5, volumeB: 1 }
   }
 }
 

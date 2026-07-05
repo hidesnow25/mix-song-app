@@ -6,9 +6,8 @@ interface MixControlsProps {
 }
 
 const PRESETS: { value: MixPreset; label: string }[] = [
-  { value: 'left', label: '左側からのみ再生' },
-  { value: 'right', label: '右側からのみ再生' },
-  { value: 'both', label: '左右から再生 (A:左 / B:右)' },
+  { value: 'separate', label: 'A:左 / B:右で再生' },
+  { value: 'together', label: 'A・B両方を左右から再生' },
 ]
 
 export function MixControls({ preset, onPresetChange }: MixControlsProps) {

@@ -20,7 +20,7 @@ const DEBOUNCE_MS = 250
 export function useMixEngine() {
   const [trackA, setTrackA] = useState<TrackData>(EMPTY_TRACK)
   const [trackB, setTrackB] = useState<TrackData>(EMPTY_TRACK)
-  const [preset, setPreset] = useState<MixPreset>('both')
+  const [preset, setPreset] = useState<MixPreset>('separate')
   const [userExportFormat, setUserExportFormat] = useState<ExportFormat | null>(null)
   const [objectUrl, setObjectUrl] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
@@ -55,38 +55,56 @@ export function useMixEngine() {
     const sampleRate = trackA.sampleRate
     const { panA, volumeA, panB, volumeB } = presetToMixParams(preset)
 
-    const timer = setTimeout(() => {
+    let workTimer: ReturnType<typeof setTimeout> | undefined
+    let cancelled = false
+
+    const debounceTimer = setTimeout(() => {
       setIsProcessing(true)
-      try {
-        const result = renderMix({
-          monoA: trackA.mono!,
-          regionsA: trackA.regions,
-          panA,
-          volumeA,
-          monoB: trackB.mono!,
-          regionsB: trackB.regions,
-          panB,
-          volumeB,
-          sampleRate,
-        })
+      // Yield one tick so React can actually paint the "processing" state
+      // before the encode work runs — otherwise isProcessing could flip
+      // true->false within the same callback and never become visible.
+      workTimer = setTimeout(() => {
+        void (async () => {
+          try {
+            const result = renderMix({
+              monoA: trackA.mono!,
+              regionsA: trackA.regions,
+              panA,
+              volumeA,
+              monoB: trackB.mono!,
+              regionsB: trackB.regions,
+              panB,
+              volumeB,
+              sampleRate,
+            })
 
-        const { buffer, mimeType } =
-          exportFormat === 'mp3'
-            ? { buffer: encodeMp3(result.left, result.right, result.sampleRate), mimeType: 'audio/mpeg' }
-            : { buffer: encodeWavPCM16(result.left, result.right, result.sampleRate), mimeType: 'audio/wav' }
+            // encodeMp3 yields periodically during long encodes so the tab
+            // stays responsive; guard against a newer run finishing first.
+            const { buffer, mimeType } =
+              exportFormat === 'mp3'
+                ? { buffer: await encodeMp3(result.left, result.right, result.sampleRate), mimeType: 'audio/mpeg' }
+                : { buffer: encodeWavPCM16(result.left, result.right, result.sampleRate), mimeType: 'audio/wav' }
 
-        const blob = new Blob([buffer], { type: mimeType })
-        const nextUrl = URL.createObjectURL(blob)
+            if (cancelled) return
 
-        if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
-        objectUrlRef.current = nextUrl
-        setObjectUrl(nextUrl)
-      } finally {
-        setIsProcessing(false)
-      }
+            const blob = new Blob([buffer], { type: mimeType })
+            const nextUrl = URL.createObjectURL(blob)
+
+            if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+            objectUrlRef.current = nextUrl
+            setObjectUrl(nextUrl)
+          } finally {
+            if (!cancelled) setIsProcessing(false)
+          }
+        })()
+      }, 0)
     }, DEBOUNCE_MS)
 
-    return () => clearTimeout(timer)
+    return () => {
+      cancelled = true
+      clearTimeout(debounceTimer)
+      if (workTimer) clearTimeout(workTimer)
+    }
   }, [
     trackA.mono,
     trackA.sampleRate,

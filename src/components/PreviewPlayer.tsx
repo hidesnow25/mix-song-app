@@ -1,3 +1,5 @@
+import { Spinner } from './Spinner'
+
 interface PreviewPlayerProps {
   objectUrl: string | null
   isProcessing: boolean
@@ -6,7 +8,14 @@ interface PreviewPlayerProps {
 export function PreviewPlayer({ objectUrl, isProcessing }: PreviewPlayerProps) {
   return (
     <div className="preview-player">
-      <p className="preview-player__label">プレビュー{isProcessing ? '（更新中…）' : ''}</p>
+      <p className="preview-player__label">
+        プレビュー
+        {isProcessing && (
+          <span className="preview-player__processing">
+            <Spinner /> 生成中…
+          </span>
+        )}
+      </p>
       {objectUrl ? (
         <audio controls src={objectUrl} style={{ width: '100%' }} />
       ) : (
