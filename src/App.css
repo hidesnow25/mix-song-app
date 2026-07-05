@@ -1,3 +1,9 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 :root {
   color-scheme: light dark;
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -181,9 +187,27 @@ body {
 
 .export-controls {
   display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.export-controls__filename-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.export-controls__action-row {
+  display: flex;
   align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
+}
+
+.export-controls__filename-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  opacity: 0.8;
 }
 
 .export-controls__filename {
@@ -193,8 +217,7 @@ body {
   border-radius: 8px;
   padding: 0.6rem 0.75rem;
   font-size: 0.9rem;
-  min-width: 12rem;
-  flex: 1 1 auto;
+  width: 100%;
 }
 
 .export-controls__format {
