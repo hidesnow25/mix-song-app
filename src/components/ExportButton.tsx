@@ -1,17 +1,35 @@
-import { SUPPORTED_EXPORT_FORMATS, type ExportFormat } from '../audio/format'
+import { SUPPORTED_EXPORT_FORMATS, sanitizeFileName, type ExportFormat } from '../audio/format'
 
 interface ExportButtonProps {
   objectUrl: string | null
   exportFormat: ExportFormat
   onExportFormatChange: (format: ExportFormat) => void
+  fileName: string
+  onFileNameChange: (fileName: string) => void
   isProcessing: boolean
 }
 
-export function ExportButton({ objectUrl, exportFormat, onExportFormatChange, isProcessing }: ExportButtonProps) {
+export function ExportButton({
+  objectUrl,
+  exportFormat,
+  onExportFormatChange,
+  fileName,
+  onFileNameChange,
+  isProcessing,
+}: ExportButtonProps) {
   const disabled = !objectUrl || isProcessing
+  const downloadName = `${sanitizeFileName(fileName)}.${exportFormat}`
 
   return (
     <div className="export-controls">
+      <input
+        className="export-controls__filename"
+        type="text"
+        value={fileName}
+        onChange={(event) => onFileNameChange(event.target.value)}
+        aria-label="ダウンロードファイル名"
+        placeholder="ファイル名"
+      />
       <select
         className="export-controls__format"
         value={exportFormat}
@@ -27,7 +45,7 @@ export function ExportButton({ objectUrl, exportFormat, onExportFormatChange, is
       <a
         className={`export-button${disabled ? ' export-button--disabled' : ''}`}
         href={disabled ? undefined : objectUrl}
-        download={disabled ? undefined : `mixed-song.${exportFormat}`}
+        download={disabled ? undefined : downloadName}
         aria-disabled={disabled}
         onClick={(event) => {
           if (disabled) event.preventDefault()

@@ -3,8 +3,8 @@ import { decodeFile, toMono } from '../audio/decode'
 import { presetToMixParams } from '../audio/mix'
 import { renderMix } from '../audio/render'
 import { encodeWavPCM16 } from '../audio/wav'
-import { encodeMp3 } from '../audio/mp3'
-import { defaultExportFormat, type ExportFormat } from '../audio/format'
+import { encodeMp3InWorker } from '../audio/mp3WorkerClient'
+import { defaultExportFormat, defaultOutputFileName, type ExportFormat } from '../audio/format'
 import type { MixPreset, SilenceRegion } from '../audio/types'
 
 interface TrackData {
@@ -22,12 +22,14 @@ export function useMixEngine() {
   const [trackB, setTrackB] = useState<TrackData>(EMPTY_TRACK)
   const [preset, setPreset] = useState<MixPreset>('separate')
   const [userExportFormat, setUserExportFormat] = useState<ExportFormat | null>(null)
+  const [userFileName, setUserFileName] = useState<string | null>(null)
   const [objectUrl, setObjectUrl] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const objectUrlRef = useRef<string | null>(null)
 
   const exportFormat = userExportFormat ?? defaultExportFormat(trackA.file?.name ?? null, trackB.file?.name ?? null)
+  const fileName = userFileName ?? defaultOutputFileName(trackA.file?.name ?? null, trackB.file?.name ?? null)
 
   async function loadFile(track: 'A' | 'B', file: File) {
     setError(null)
@@ -78,11 +80,15 @@ export function useMixEngine() {
               sampleRate,
             })
 
-            // encodeMp3 yields periodically during long encodes so the tab
-            // stays responsive; guard against a newer run finishing first.
+            // MP3 encoding runs in a Worker so the main thread stays fully
+            // responsive during long encodes; guard against a newer run
+            // finishing first.
             const { buffer, mimeType } =
               exportFormat === 'mp3'
-                ? { buffer: await encodeMp3(result.left, result.right, result.sampleRate), mimeType: 'audio/mpeg' }
+                ? {
+                    buffer: await encodeMp3InWorker(result.left, result.right, result.sampleRate),
+                    mimeType: 'audio/mpeg',
+                  }
                 : { buffer: encodeWavPCM16(result.left, result.right, result.sampleRate), mimeType: 'audio/wav' }
 
             if (cancelled) return
@@ -129,6 +135,8 @@ export function useMixEngine() {
     setPreset,
     exportFormat,
     setExportFormat: setUserExportFormat,
+    fileName,
+    setFileName: setUserFileName,
     loadFile,
     setRegions,
     objectUrl,

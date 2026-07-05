@@ -12,6 +12,8 @@ export default function App() {
     setPreset,
     exportFormat,
     setExportFormat,
+    fileName,
+    setFileName,
     loadFile,
     objectUrl,
     isProcessing,
@@ -46,6 +48,8 @@ export default function App() {
           objectUrl={objectUrl}
           exportFormat={exportFormat}
           onExportFormatChange={setExportFormat}
+          fileName={fileName}
+          onFileNameChange={setFileName}
           isProcessing={isProcessing}
         />
       </section>

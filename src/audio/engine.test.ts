@@ -4,7 +4,7 @@ import { presetToMixParams, mixTracks } from './mix'
 import { encodeWavPCM16 } from './wav'
 import { encodeMp3 } from './mp3'
 import { renderMix } from './render'
-import { defaultExportFormat, extensionFromFileName } from './format'
+import { defaultExportFormat, defaultOutputFileName, extensionFromFileName, sanitizeFileName } from './format'
 
 describe('applySilence', () => {
   it('returns an unmodified copy when there are no regions', () => {
@@ -177,6 +177,41 @@ describe('format helpers', () => {
   it('falls back to wav when neither extension is supported', () => {
     expect(defaultExportFormat('song.flac', 'other.aac')).toBe('wav')
     expect(defaultExportFormat(null, null)).toBe('wav')
+  })
+})
+
+describe('defaultOutputFileName', () => {
+  it('joins both base names (extensions stripped) with a hyphen', () => {
+    expect(defaultOutputFileName('voice-a.wav', 'voice-b.wav')).toBe('voice-a-voice-b')
+  })
+
+  it('falls back to whichever single file name is available', () => {
+    expect(defaultOutputFileName('voice-a.wav', null)).toBe('voice-a')
+    expect(defaultOutputFileName(null, 'voice-b.wav')).toBe('voice-b')
+  })
+
+  it('falls back to a generic name when neither file is available', () => {
+    expect(defaultOutputFileName(null, null)).toBe('mixed-song')
+  })
+})
+
+describe('sanitizeFileName', () => {
+  it('leaves an already-valid file name untouched', () => {
+    expect(sanitizeFileName('voice-a-voice-b')).toBe('voice-a-voice-b')
+  })
+
+  it('replaces characters invalid in file systems with underscores', () => {
+    expect(sanitizeFileName('a/b\\c:d*e?f"g<h>i|j')).toBe('a_b_c_d_e_f_g_h_i_j')
+  })
+
+  it('trims trailing dots and spaces', () => {
+    expect(sanitizeFileName('name.. ')).toBe('name')
+  })
+
+  it('falls back to a generic name when the result would be empty', () => {
+    expect(sanitizeFileName('')).toBe('mixed-song')
+    expect(sanitizeFileName('...')).toBe('mixed-song')
+    expect(sanitizeFileName('   ')).toBe('mixed-song')
   })
 })
 
