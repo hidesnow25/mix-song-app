@@ -1,19 +1,26 @@
 import type { MixPreset } from './types'
 
 /**
- * Maps the 3 discrete UI presets onto the same continuous per-file pan
- * model (0 = left, 1 = right) that a future balance slider would drive.
- * "both" pans file A fully left and file B fully right, isolating each
- * take to its own channel (e.g. for building harmony/solo-split mixes).
+ * Maps the 3 discrete UI presets onto a per-file (pan, volume) pair that a
+ * future balance slider would drive continuously. `volume` gates whether a
+ * file is heard at all: "left"/"right" solo one file to one channel and
+ * exclude the other entirely (not just route it away), while "both" pans
+ * file A fully left and file B fully right so each take is isolated to its
+ * own channel (e.g. for building harmony/solo-split mixes).
  */
-export function presetToPans(preset: MixPreset): { panA: number; panB: number } {
+export function presetToMixParams(preset: MixPreset): {
+  panA: number
+  volumeA: number
+  panB: number
+  volumeB: number
+} {
   switch (preset) {
     case 'left':
-      return { panA: 0, panB: 0 }
+      return { panA: 0, volumeA: 1, panB: 0, volumeB: 0 }
     case 'right':
-      return { panA: 1, panB: 1 }
+      return { panA: 1, volumeA: 0, panB: 1, volumeB: 1 }
     case 'both':
-      return { panA: 0, panB: 1 }
+      return { panA: 0, volumeA: 1, panB: 1, volumeB: 1 }
   }
 }
 
@@ -27,8 +34,10 @@ function equalPowerGains(pan: number): { l: number; r: number } {
 export function mixTracks(
   a: Float32Array,
   panA: number,
+  volumeA: number,
   b: Float32Array,
   panB: number,
+  volumeB: number,
 ): { left: Float32Array; right: Float32Array } {
   const length = Math.max(a.length, b.length)
   const gainsA = equalPowerGains(panA)
@@ -38,8 +47,8 @@ export function mixTracks(
   const right = new Float32Array(length)
 
   for (let i = 0; i < length; i++) {
-    const sampleA = i < a.length ? a[i] : 0
-    const sampleB = i < b.length ? b[i] : 0
+    const sampleA = i < a.length ? a[i] * volumeA : 0
+    const sampleB = i < b.length ? b[i] * volumeB : 0
     left[i] = Math.min(1, Math.max(-1, sampleA * gainsA.l + sampleB * gainsB.l))
     right[i] = Math.min(1, Math.max(-1, sampleA * gainsA.r + sampleB * gainsB.r))
   }

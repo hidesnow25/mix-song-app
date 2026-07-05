@@ -1,3 +1,5 @@
+import { floatSampleToInt16 } from './pcm'
+
 /** Encodes interleaved 16-bit PCM stereo audio as a standard RIFF/WAVE file. */
 export function encodeWavPCM16(left: Float32Array, right: Float32Array, sampleRate: number): ArrayBuffer {
   const numFrames = Math.min(left.length, right.length)
@@ -24,18 +26,13 @@ export function encodeWavPCM16(left: Float32Array, right: Float32Array, sampleRa
 
   let offset = 44
   for (let i = 0; i < numFrames; i++) {
-    view.setInt16(offset, floatToPCM16(left[i]), true)
+    view.setInt16(offset, floatSampleToInt16(left[i]), true)
     offset += 2
-    view.setInt16(offset, floatToPCM16(right[i]), true)
+    view.setInt16(offset, floatSampleToInt16(right[i]), true)
     offset += 2
   }
 
   return buffer
-}
-
-function floatToPCM16(sample: number): number {
-  const clamped = Math.min(1, Math.max(-1, sample))
-  return clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff
 }
 
 function writeString(view: DataView, offset: number, value: string): void {

@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { decodeFile, toMono } from '../audio/decode'
-import { presetToPans } from '../audio/mix'
+import { presetToMixParams } from '../audio/mix'
 import { renderMix } from '../audio/render'
 import { encodeWavPCM16 } from '../audio/wav'
+import { encodeMp3 } from '../audio/mp3'
+import { defaultExportFormat, type ExportFormat } from '../audio/format'
 import type { MixPreset, SilenceRegion } from '../audio/types'
 
 interface TrackData {
@@ -19,10 +21,13 @@ export function useMixEngine() {
   const [trackA, setTrackA] = useState<TrackData>(EMPTY_TRACK)
   const [trackB, setTrackB] = useState<TrackData>(EMPTY_TRACK)
   const [preset, setPreset] = useState<MixPreset>('both')
+  const [userExportFormat, setUserExportFormat] = useState<ExportFormat | null>(null)
   const [objectUrl, setObjectUrl] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const objectUrlRef = useRef<string | null>(null)
+
+  const exportFormat = userExportFormat ?? defaultExportFormat(trackA.file?.name ?? null, trackB.file?.name ?? null)
 
   async function loadFile(track: 'A' | 'B', file: File) {
     setError(null)
@@ -48,7 +53,7 @@ export function useMixEngine() {
     }
 
     const sampleRate = trackA.sampleRate
-    const { panA, panB } = presetToPans(preset)
+    const { panA, volumeA, panB, volumeB } = presetToMixParams(preset)
 
     const timer = setTimeout(() => {
       setIsProcessing(true)
@@ -57,13 +62,20 @@ export function useMixEngine() {
           monoA: trackA.mono!,
           regionsA: trackA.regions,
           panA,
+          volumeA,
           monoB: trackB.mono!,
           regionsB: trackB.regions,
           panB,
+          volumeB,
           sampleRate,
         })
-        const wavBuffer = encodeWavPCM16(result.left, result.right, result.sampleRate)
-        const blob = new Blob([wavBuffer], { type: 'audio/wav' })
+
+        const { buffer, mimeType } =
+          exportFormat === 'mp3'
+            ? { buffer: encodeMp3(result.left, result.right, result.sampleRate), mimeType: 'audio/mpeg' }
+            : { buffer: encodeWavPCM16(result.left, result.right, result.sampleRate), mimeType: 'audio/wav' }
+
+        const blob = new Blob([buffer], { type: mimeType })
         const nextUrl = URL.createObjectURL(blob)
 
         if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
@@ -75,7 +87,16 @@ export function useMixEngine() {
     }, DEBOUNCE_MS)
 
     return () => clearTimeout(timer)
-  }, [trackA.mono, trackA.sampleRate, trackA.regions, trackB.mono, trackB.sampleRate, trackB.regions, preset])
+  }, [
+    trackA.mono,
+    trackA.sampleRate,
+    trackA.regions,
+    trackB.mono,
+    trackB.sampleRate,
+    trackB.regions,
+    preset,
+    exportFormat,
+  ])
 
   useEffect(() => {
     return () => {
@@ -88,6 +109,8 @@ export function useMixEngine() {
     trackBFile: trackB.file,
     preset,
     setPreset,
+    exportFormat,
+    setExportFormat: setUserExportFormat,
     loadFile,
     setRegions,
     objectUrl,

@@ -6,9 +6,11 @@ export interface RenderInput {
   monoA: Float32Array
   regionsA: SilenceRegion[]
   panA: number
+  volumeA: number
   monoB: Float32Array
   regionsB: SilenceRegion[]
   panB: number
+  volumeB: number
   sampleRate: number
 }
 
@@ -27,6 +29,6 @@ export interface RenderResult {
 export function renderMix(input: RenderInput): RenderResult {
   const a = applySilence(input.monoA, input.sampleRate, input.regionsA)
   const b = applySilence(input.monoB, input.sampleRate, input.regionsB)
-  const { left, right } = mixTracks(a, input.panA, b, input.panB)
+  const { left, right } = mixTracks(a, input.panA, input.volumeA, b, input.panB, input.volumeB)
   return { left, right, sampleRate: input.sampleRate }
 }

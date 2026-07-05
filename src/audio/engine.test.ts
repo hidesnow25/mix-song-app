@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { applySilence } from './silence'
-import { presetToPans, mixTracks } from './mix'
+import { presetToMixParams, mixTracks } from './mix'
 import { encodeWavPCM16 } from './wav'
+import { encodeMp3 } from './mp3'
 import { renderMix } from './render'
+import { defaultExportFormat, extensionFromFileName } from './format'
 
 describe('applySilence', () => {
   it('returns an unmodified copy when there are no regions', () => {
@@ -42,17 +44,17 @@ describe('applySilence', () => {
   })
 })
 
-describe('presetToPans', () => {
-  it('maps left preset to both tracks panned fully left', () => {
-    expect(presetToPans('left')).toEqual({ panA: 0, panB: 0 })
+describe('presetToMixParams', () => {
+  it('maps left preset to only file A, panned fully left', () => {
+    expect(presetToMixParams('left')).toEqual({ panA: 0, volumeA: 1, panB: 0, volumeB: 0 })
   })
 
-  it('maps right preset to both tracks panned fully right', () => {
-    expect(presetToPans('right')).toEqual({ panA: 1, panB: 1 })
+  it('maps right preset to only file B, panned fully right', () => {
+    expect(presetToMixParams('right')).toEqual({ panA: 1, volumeA: 0, panB: 1, volumeB: 1 })
   })
 
-  it('maps both preset to A-left, B-right stereo separation', () => {
-    expect(presetToPans('both')).toEqual({ panA: 0, panB: 1 })
+  it('maps both preset to A-left, B-right stereo separation with both active', () => {
+    expect(presetToMixParams('both')).toEqual({ panA: 0, volumeA: 1, panB: 1, volumeB: 1 })
   })
 })
 
@@ -60,7 +62,7 @@ describe('mixTracks', () => {
   it('isolates track A to the left channel and B to the right when panned apart', () => {
     const a = new Float32Array([0.5, 0.5])
     const b = new Float32Array([0.25, 0.25])
-    const { left, right } = mixTracks(a, 0, b, 1)
+    const { left, right } = mixTracks(a, 0, 1, b, 1, 1)
     expect(left[0]).toBeCloseTo(0.5, 5)
     expect(right[0]).toBeCloseTo(0.25, 5)
   })
@@ -68,15 +70,23 @@ describe('mixTracks', () => {
   it('sums both tracks into a single channel when both panned the same way', () => {
     const a = new Float32Array([0.3])
     const b = new Float32Array([0.3])
-    const { left, right } = mixTracks(a, 0, b, 0)
+    const { left, right } = mixTracks(a, 0, 1, b, 0, 1)
     expect(left[0]).toBeCloseTo(0.6, 5)
+    expect(right[0]).toBeCloseTo(0, 5)
+  })
+
+  it('excludes a track entirely when its volume is 0, regardless of pan', () => {
+    const a = new Float32Array([0.5])
+    const b = new Float32Array([0.9])
+    const { left, right } = mixTracks(a, 0, 1, b, 0, 0)
+    expect(left[0]).toBeCloseTo(0.5, 5)
     expect(right[0]).toBeCloseTo(0, 5)
   })
 
   it('pads the shorter track with silence instead of truncating', () => {
     const a = new Float32Array([1, 1, 1])
     const b = new Float32Array([1])
-    const { left, right } = mixTracks(a, 0, b, 1)
+    const { left, right } = mixTracks(a, 0, 1, b, 1, 1)
     expect(left.length).toBe(3)
     expect(right.length).toBe(3)
     expect(right[1]).toBe(0)
@@ -86,7 +96,7 @@ describe('mixTracks', () => {
   it('clips summed output to [-1, 1]', () => {
     const a = new Float32Array([1])
     const b = new Float32Array([1])
-    const { left } = mixTracks(a, 0.5, b, 0.5)
+    const { left } = mixTracks(a, 0.5, 1, b, 0.5, 1)
     expect(left[0]).toBeLessThanOrEqual(1)
     expect(left[0]).toBeGreaterThanOrEqual(-1)
   })
@@ -115,6 +125,48 @@ describe('encodeWavPCM16', () => {
   })
 })
 
+describe('encodeMp3', () => {
+  it('produces a non-empty MP3 buffer starting with a valid frame sync', () => {
+    const sampleRate = 44100
+    const numFrames = sampleRate // 1 second
+    const left = new Float32Array(numFrames)
+    const right = new Float32Array(numFrames)
+    for (let i = 0; i < numFrames; i++) {
+      left[i] = 0.5 * Math.sin((2 * Math.PI * 440 * i) / sampleRate)
+      right[i] = left[i]
+    }
+
+    const buffer = encodeMp3(left, right, sampleRate)
+    expect(buffer.byteLength).toBeGreaterThan(0)
+
+    // MP3 frames start with an 11-bit frame sync: 0xFF followed by top 3 bits set
+    const bytes = new Uint8Array(buffer)
+    expect(bytes[0]).toBe(0xff)
+    expect(bytes[1] & 0xe0).toBe(0xe0)
+  })
+})
+
+describe('format helpers', () => {
+  it('extracts a lowercased extension from a file name', () => {
+    expect(extensionFromFileName('song.MP3')).toBe('mp3')
+    expect(extensionFromFileName('take-1.wav')).toBe('wav')
+    expect(extensionFromFileName('no-extension')).toBe('')
+  })
+
+  it('defaults to file A extension when supported', () => {
+    expect(defaultExportFormat('song.mp3', 'other.wav')).toBe('mp3')
+  })
+
+  it('falls back to file B extension when A is unsupported', () => {
+    expect(defaultExportFormat('song.flac', 'other.mp3')).toBe('mp3')
+  })
+
+  it('falls back to wav when neither extension is supported', () => {
+    expect(defaultExportFormat('song.flac', 'other.aac')).toBe('wav')
+    expect(defaultExportFormat(null, null)).toBe('wav')
+  })
+})
+
 describe('renderMix', () => {
   it('applies silence regions before mixing', () => {
     const monoA = new Float32Array(20).fill(1)
@@ -123,9 +175,11 @@ describe('renderMix', () => {
       monoA,
       regionsA: [{ start: 0, end: 0.02 }],
       panA: 0,
+      volumeA: 1,
       monoB,
       regionsB: [],
       panB: 1,
+      volumeB: 1,
       sampleRate: 1000,
     })
     // track A silenced entirely (region covers all 20 samples at 1000Hz -> 0.02s)
@@ -133,5 +187,23 @@ describe('renderMix', () => {
     // track B untouched, panned fully right
     expect(result.right[10]).toBeCloseTo(1, 5)
     expect(result.sampleRate).toBe(1000)
+  })
+
+  it('excludes track B entirely when its volume is 0 (e.g. "left" preset)', () => {
+    const monoA = new Float32Array(10).fill(0.4)
+    const monoB = new Float32Array(10).fill(0.9)
+    const result = renderMix({
+      monoA,
+      regionsA: [],
+      panA: 0,
+      volumeA: 1,
+      monoB,
+      regionsB: [],
+      panB: 0,
+      volumeB: 0,
+      sampleRate: 1000,
+    })
+    expect(result.left[5]).toBeCloseTo(0.4, 5)
+    expect(result.right[5]).toBeCloseTo(0, 5)
   })
 })
