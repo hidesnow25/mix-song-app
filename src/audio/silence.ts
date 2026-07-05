@@ -1,4 +1,5 @@
 import type { SilenceRegion } from './types'
+import { DEFAULT_FADE_SECONDS } from './fadeConstants'
 
 /**
  * Zeroes out the given time ranges in `samples`, with a short linear fade
@@ -9,7 +10,7 @@ export function applySilence(
   samples: Float32Array,
   sampleRate: number,
   regions: SilenceRegion[],
-  fadeMs = 5,
+  fadeMs = DEFAULT_FADE_SECONDS * 1000,
 ): Float32Array {
   if (regions.length === 0) return samples.slice()
 

@@ -24,6 +24,8 @@ export function useMixEngine() {
   const [userExportFormat, setUserExportFormat] = useState<ExportFormat | null>(null)
   const [userFileName, setUserFileName] = useState<string | null>(null)
   const [objectUrl, setObjectUrl] = useState<string | null>(null)
+  const [previewSamples, setPreviewSamples] = useState<{ left: Float32Array; right: Float32Array } | null>(null)
+  const [useCompensated, setUseCompensated] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const objectUrlRef = useRef<string | null>(null)
@@ -78,7 +80,12 @@ export function useMixEngine() {
               panB,
               volumeB,
               sampleRate,
+              soloBoostFactor: useCompensated ? Math.SQRT2 : undefined,
             })
+
+            // Feed the (fast, synchronous) mix result to the preview waveform
+            // before the potentially slow encode step below runs.
+            if (!cancelled) setPreviewSamples({ left: result.left, right: result.right })
 
             // MP3 encoding runs in a Worker so the main thread stays fully
             // responsive during long encodes; guard against a newer run
@@ -120,6 +127,7 @@ export function useMixEngine() {
     trackB.regions,
     preset,
     exportFormat,
+    useCompensated,
   ])
 
   useEffect(() => {
@@ -131,6 +139,9 @@ export function useMixEngine() {
   return {
     trackAFile: trackA.file,
     trackBFile: trackB.file,
+    trackAMono: trackA.mono,
+    trackBMono: trackB.mono,
+    sampleRate: trackA.sampleRate ?? trackB.sampleRate,
     preset,
     setPreset,
     exportFormat,
@@ -140,6 +151,9 @@ export function useMixEngine() {
     loadFile,
     setRegions,
     objectUrl,
+    previewSamples,
+    useCompensated,
+    setUseCompensated,
     isProcessing,
     error,
   }

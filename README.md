@@ -10,10 +10,11 @@
 - WAV / MP3 を選んでダウンロード（デフォルトは入力ファイルの拡張子に合わせて自動選択）
 - ダウンロードするファイル名を入力可能（デフォルトは音声ファイルA・Bのファイル名をハイフンで連結したもの）
 - 処理中はプレビュー欄に控えめなローディング表示（画面全体はブロックしない）
+- 音声ファイルのパート分け機能: 再生しながら区間の終了点を記録し、その区間でA・Bどちらの音を消すか（または両方残すか）を決定していくことで、曲全体をパートごとに合成できる。A・B・プレビューの3つの波形を表示し、プレビュー波形は決定済みの区間を色分け表示（Aのみ聞こえる区間=青、Bのみ聞こえる区間=橙、両方=ピンク、編集中の区間=メインカラー）。区間の決定は即座にWeb Audioのライブ再生グラフに反映されるため、決定のたびに音声ファイルを再エンコードして待つ必要はない（最終的なダウンロード用ファイルは既存のデバウンス処理がバックグラウンドで生成する）
 
 すべてブラウザ内（Web Audio API）で完結し、サーバは不要です。
 
-波形表示・ドラッグ範囲選択による無音化（パート分け編集）機能は一時的にUIから外していますが、`src/components/WaveformTrack.tsx` と `src/hooks/useMixEngine.ts` の `setRegions` にロジックは残してあり、将来UIに再度組み込めます。
+ドラッグ範囲選択による無音化編集（`src/components/WaveformTrack.tsx`）は上記のパート分け機能とは別の、より単純な旧UIとして未使用のまま残していますが、`useMixEngine`の`setRegions`経由で同じ無音化の仕組みを使えるため、将来再度組み込むことも可能です。
 
 ## 開発
 
@@ -29,6 +30,8 @@ npm run build    # 本番ビルド (dist/)
 `src/audio/` 配下は `AudioBuffer`/`AudioContext`/`File` などのDOM型に依存しない、Float32Arrayとplainな型のみで完結した純粋関数群です（`silence.ts` / `mix.ts` / `wav.ts` / `mp3.ts` / `render.ts` / `format.ts`）。ブラウザ専用のファイル読み込み・デコード処理は `decode.ts` にのみ隔離されており、将来サーバサイド（Node.jsなど）へ移植する場合はこのファイルだけを差し替えれば残りのロジックはそのまま再利用できます。
 
 MP3エンコードはWebAssembly版LAME（`wasm-media-encoders`）を使用し、実際のエンコード処理は`mp3.worker.ts`内でWeb Workerとして実行されます（`mp3WorkerClient.ts`がブラウザ専用の呼び出し口）。これによりメインスレッドは常に応答可能な状態を保ちます。`mp3.ts`自体はDOM/Worker APIに依存しないため、Node（vitest）でもWorker内でも同じcoreロジックがそのまま動作します。
+
+パート分け機能のライブプレビューは`livePreview.ts`（ブラウザ専用、`decode.ts`と同じ立ち位置）が`AudioContext`上に`GainNode`/`StereoPannerNode`のグラフを構築して実現しています。フェード曲線の計算（`gainCurve.ts`）と波形ピークの計算（`peaks.ts`）はどちらもDOM非依存のpure関数で、他のcoreロジックと同様にvitestでテストされています。既存の`applySilence`/`mixTracks`/`renderMix`はこの機能のために変更しておらず、パート分けUIは無音化リージョン（`SilenceRegion[]`）を組み立てて既存のパイプラインに渡しているだけです。
 
 ## デプロイ
 

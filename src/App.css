@@ -229,6 +229,28 @@ body {
   font-size: 0.9rem;
 }
 
+.export-controls__compensated {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  width: fit-content;
+  cursor: pointer;
+}
+
+.export-controls__info-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  border: 1px solid #a78bfa;
+  font-size: 0.7rem;
+  opacity: 0.8;
+  cursor: help;
+}
+
 .export-button {
   display: inline-block;
   background: #7c3aed;
@@ -243,4 +265,126 @@ body {
   background: #c4b5fd;
   pointer-events: none;
   cursor: not-allowed;
+}
+
+.part-recorder {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.part-recorder__hint {
+  margin: 0;
+  opacity: 0.7;
+  font-size: 0.9rem;
+}
+
+.waveform-canvas {
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 12px;
+  padding: 0.75rem;
+}
+
+.waveform-canvas__label {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+}
+
+.waveform-canvas__container {
+  width: 100%;
+}
+
+.waveform-canvas__canvas {
+  display: block;
+  width: 100%;
+}
+
+.part-recorder__time-fields,
+.part-recorder__transport,
+.part-recorder__decision,
+.part-recorder__overlap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.part-recorder__time-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  opacity: 0.9;
+}
+
+.part-recorder__time-field input {
+  width: 5rem;
+  border: 1px solid #a78bfa;
+  background: transparent;
+  color: inherit;
+  border-radius: 8px;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.9rem;
+}
+
+.part-recorder__time-fields button,
+.part-recorder__transport button,
+.part-recorder__decision button,
+.part-recorder__overlap button,
+.part-recorder__preview-button {
+  border: 1px solid #a78bfa;
+  background: transparent;
+  color: inherit;
+  border-radius: 999px;
+  padding: 0.6rem 1.2rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.part-recorder__time-fields button:disabled,
+.part-recorder__transport button:disabled,
+.part-recorder__decision button:disabled,
+.part-recorder__preview-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.part-recorder__overlap {
+  background: rgba(124, 58, 237, 0.1);
+  border: 1px solid rgba(124, 58, 237, 0.35);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+}
+
+.part-recorder__overlap p {
+  margin: 0;
+  font-size: 0.9rem;
+  width: 100%;
+}
+
+.part-recorder__decision-label {
+  margin: 0;
+  font-size: 0.9rem;
+  opacity: 0.8;
+  width: 100%;
+}
+
+.part-recorder__decision-button--a {
+  border-color: #f97316;
+}
+
+.part-recorder__decision-button--b {
+  border-color: #3b82f6;
+}
+
+.part-recorder__decision-button--none {
+  border-color: #ec4899;
+}
+
+.part-recorder__done {
+  margin: 0;
+  font-weight: 600;
+  color: #7c3aed;
 }

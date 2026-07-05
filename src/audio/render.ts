@@ -1,4 +1,5 @@
 import { applySilence } from './silence'
+import { applySoloBoost } from './soloCompensation'
 import { mixTracks } from './mix'
 import type { SilenceRegion } from './types'
 
@@ -12,6 +13,14 @@ export interface RenderInput {
   panB: number
   volumeB: number
   sampleRate: number
+  /**
+   * When set (and not 1), boosts each track's gain in ranges where the
+   * *other* track is silenced (i.e. this one is effectively solo there), to
+   * compensate for the natural loudness drop when going from "both tracks
+   * summed" to "one track alone". Optional and off by default so existing
+   * callers/tests are unaffected.
+   */
+  soloBoostFactor?: number
 }
 
 export interface RenderResult {
@@ -27,8 +36,14 @@ export interface RenderResult {
  * decode.ts's file-decoding step would need a server-side replacement.
  */
 export function renderMix(input: RenderInput): RenderResult {
-  const a = applySilence(input.monoA, input.sampleRate, input.regionsA)
-  const b = applySilence(input.monoB, input.sampleRate, input.regionsB)
+  let a = applySilence(input.monoA, input.sampleRate, input.regionsA)
+  let b = applySilence(input.monoB, input.sampleRate, input.regionsB)
+
+  if (input.soloBoostFactor !== undefined && input.soloBoostFactor !== 1) {
+    a = applySoloBoost(a, input.sampleRate, input.regionsB, input.soloBoostFactor)
+    b = applySoloBoost(b, input.sampleRate, input.regionsA, input.soloBoostFactor)
+  }
+
   const { left, right } = mixTracks(a, input.panA, input.volumeA, b, input.panB, input.volumeB)
   return { left, right, sampleRate: input.sampleRate }
 }

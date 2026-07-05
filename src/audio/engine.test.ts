@@ -254,4 +254,53 @@ describe('renderMix', () => {
     expect(result.left[5]).toBeCloseTo(0.4, 5)
     expect(result.right[5]).toBeCloseTo(0, 5)
   })
+
+  it('leaves output unchanged when soloBoostFactor is omitted (default, existing behavior)', () => {
+    const monoA = new Float32Array(20).fill(0.3)
+    const monoB = new Float32Array(20).fill(0.3)
+    const withoutBoost = renderMix({
+      monoA,
+      regionsA: [],
+      panA: 0,
+      volumeA: 1,
+      monoB,
+      regionsB: [{ start: 0, end: 0.02 }],
+      panB: 0,
+      volumeB: 1,
+      sampleRate: 1000,
+    })
+    const withDefaultBoost = renderMix({
+      monoA,
+      regionsA: [],
+      panA: 0,
+      volumeA: 1,
+      monoB,
+      regionsB: [{ start: 0, end: 0.02 }],
+      panB: 0,
+      volumeB: 1,
+      sampleRate: 1000,
+      soloBoostFactor: 1,
+    })
+    expect(withDefaultBoost.left[10]).toBeCloseTo(withoutBoost.left[10], 5)
+  })
+
+  it('boosts a track that is playing solo (the other silenced) when soloBoostFactor is set', () => {
+    const monoA = new Float32Array(20).fill(0.3)
+    const monoB = new Float32Array(20).fill(0.3)
+    // B is silenced for the whole range -> A is solo on the left channel there
+    const result = renderMix({
+      monoA,
+      regionsA: [],
+      panA: 0,
+      volumeA: 1,
+      monoB,
+      regionsB: [{ start: 0, end: 0.02 }],
+      panB: 0,
+      volumeB: 1,
+      sampleRate: 1000,
+      soloBoostFactor: 2,
+    })
+    expect(result.left[10]).toBeCloseTo(0.6, 5) // 0.3 * 2
+    expect(result.right[10]).toBeCloseTo(0, 5) // B silenced, no boost applies to silence
+  })
 })
