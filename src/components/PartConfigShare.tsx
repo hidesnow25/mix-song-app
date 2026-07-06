@@ -47,8 +47,20 @@ export function PartConfigShare({
     }
 
     const diff = diffTrackAssignments(result.config.tracks, tracks)
+
+    // Hard-block when config files aren't registered yet: importing anyway
+    // and loading the files afterwards would reset the restored parts (the
+    // recorder resets whenever audio data changes), leaving a preview that
+    // doesn't match the config at all.
+    if (diff.missing.length > 0) {
+      const list = diff.missing.map((t) => `${t.id}「${t.fileName}」`).join('、')
+      setError(
+        `設定ファイルに含まれる ${list} が登録されていません。同じ音声ファイルを同じ場所（A〜F）に登録してから読み込んでください。`,
+      )
+      return
+    }
+
     const problems: string[] = [
-      ...diff.missing.map((t) => `音声ファイル ${t.id} に「${t.fileName}」が登録されていません`),
       ...diff.renamed.map((r) => `音声ファイル ${r.id} は「${r.expected}」のはずですが「${r.actual}」が登録されています`),
       ...diff.extra.map((t) => `音声ファイル ${t.id}（${t.fileName}）は設定ファイルに含まれていません`),
     ]

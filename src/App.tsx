@@ -44,6 +44,19 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recorder.segments])
 
+  // Loading (or reloading) audio data rebuilds the live-preview engine and
+  // resets all recorded parts, so warn before silently wiping them — this
+  // matters most right after importing a shared part-config file.
+  function handleLoadFile(id: TrackId, file: File) {
+    if (recorder.parts.length > 0) {
+      const confirmed = window.confirm(
+        '音声ファイルを読み込み直すと、記録済みのパート分けはリセットされます。よろしいですか？',
+      )
+      if (!confirmed) return
+    }
+    void loadFile(id, file)
+  }
+
   function handleAddTrack() {
     if (recorder.parts.length > 0) {
       const confirmed = window.confirm(
@@ -79,7 +92,7 @@ export default function App() {
             <FileDropZone
               label={`音声ファイル ${id}`}
               file={tracksById[id].file}
-              onFileSelected={(file) => loadFile(id, file)}
+              onFileSelected={(file) => handleLoadFile(id, file)}
             />
             {!(BASE_TRACK_IDS as TrackId[]).includes(id) && (
               <button
