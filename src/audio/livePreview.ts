@@ -1,70 +1,68 @@
 // Browser-only glue: a live Web Audio playback graph for instant preview
-// while interactively deciding silence regions, separate from the debounced
-// renderMix -> encode -> Blob pipeline used for the final downloadable file.
-// Mirrors decode.ts as the seam that isolates browser-only APIs (AudioContext,
-// GainNode, StereoPannerNode) from the pure engine logic in mix.ts/gainCurve.ts.
+// while interactively deciding which files stay in each part-recorder
+// segment, separate from the debounced renderTogetherMix -> encode -> Blob
+// pipeline used for the final downloadable file. Mirrors decode.ts as the
+// seam that isolates browser-only APIs (AudioContext, GainNode) from the
+// pure engine logic in mix.ts/gainCurve.ts.
+//
+// Only used for "together" mode's part recorder — "separate" mode has no
+// time axis to scrub, so each track chain always plays centered (same gain
+// to both channels), which a single GainNode already achieves via Web
+// Audio's default mono-to-stereo up-mix on connecting to ctx.destination.
 
 import { getSharedAudioContext } from './decode'
-import { presetToMixParams } from './mix'
-import { buildGainCurve, interpolateGain, type GainBreakpoint } from './gainCurve'
+import { buildSegmentGainCurve, interpolateGain, type GainBreakpoint } from './gainCurve'
+import { togetherBaselineGain, togetherCompensationRatio } from './mix'
 import { DEFAULT_FADE_SECONDS } from './fadeConstants'
-import type { MixPreset, SilenceRegion } from './types'
+import type { TrackId } from './trackIds'
 
 const FADE_SECONDS = DEFAULT_FADE_SECONDS
+
+export interface LiveSegment {
+  start: number
+  end: number
+  includedTracks: TrackId[]
+}
 
 export interface LivePreviewEngine {
   play(fromSeconds: number): Promise<void>
   pause(): number
   getPosition(): number
   isPlaying(): boolean
-  setRegionsA(regions: SilenceRegion[]): void
-  setRegionsB(regions: SilenceRegion[]): void
-  setPreset(preset: MixPreset): void
+  /** `segments` must fully cover [0, duration] with no gaps — see render.ts's fillSegmentGaps. */
+  setSegments(segments: LiveSegment[], compensated: boolean): void
   dispose(): void
 }
 
 interface Chain {
+  id: TrackId
   buffer: AudioBuffer
   gain: GainNode
-  panner: StereoPannerNode
   source: AudioBufferSourceNode | null
   curve: GainBreakpoint[]
-  regions: SilenceRegion[]
-  baseGain: number
 }
 
 export function createLivePreviewEngine(params: {
-  monoA: Float32Array
-  monoB: Float32Array
+  tracks: { id: TrackId; mono: Float32Array }[]
   sampleRate: number
-  preset: MixPreset
 }): LivePreviewEngine {
   const ctx = getSharedAudioContext()
-  const duration = Math.max(params.monoA.length, params.monoB.length) / params.sampleRate
+  const duration = params.tracks.reduce((max, t) => Math.max(max, t.mono.length), 0) / params.sampleRate
+  const flatCurve: GainBreakpoint[] = [
+    { time: 0, value: 0 },
+    { time: duration, value: 0 },
+  ]
 
-  function makeChain(mono: Float32Array): Chain {
+  const chains: Chain[] = params.tracks.map(({ id, mono }) => {
     const buffer = ctx.createBuffer(1, mono.length, params.sampleRate)
     // Our Float32Arrays are always plain-ArrayBuffer-backed; copyToChannel's
     // DOM typing is narrower (Float32Array<ArrayBuffer>) than the general
     // Float32Array type used throughout the rest of the engine.
     buffer.copyToChannel(mono as Float32Array<ArrayBuffer>, 0)
-    return {
-      buffer,
-      gain: ctx.createGain(),
-      panner: ctx.createStereoPanner(),
-      source: null,
-      curve: buildGainCurve([], 1, FADE_SECONDS, duration),
-      regions: [],
-      baseGain: 1,
-    }
-  }
-
-  const chainA = makeChain(params.monoA)
-  const chainB = makeChain(params.monoB)
-  chainA.gain.connect(chainA.panner)
-  chainA.panner.connect(ctx.destination)
-  chainB.gain.connect(chainB.panner)
-  chainB.panner.connect(ctx.destination)
+    const gain = ctx.createGain()
+    gain.connect(ctx.destination)
+    return { id, buffer, gain, source: null, curve: flatCurve }
+  })
 
   let playing = false
   let playStartCtxTime = 0
@@ -101,7 +99,7 @@ export function createLivePreviewEngine(params: {
   }
 
   function stopAll() {
-    for (const chain of [chainA, chainB]) {
+    for (const chain of chains) {
       if (chain.source) {
         try {
           chain.source.stop()
@@ -118,29 +116,14 @@ export function createLivePreviewEngine(params: {
     return playing ? Math.min(duration, playStartOffset + (ctx.currentTime - playStartCtxTime)) : pausedAt
   }
 
-  function applyPreset(preset: MixPreset) {
-    const { panA, volumeA, panB, volumeB } = presetToMixParams(preset)
-    chainA.panner.pan.value = panA * 2 - 1
-    chainB.panner.pan.value = panB * 2 - 1
-    chainA.baseGain = volumeA
-    chainB.baseGain = volumeB
-    chainA.curve = buildGainCurve(chainA.regions, chainA.baseGain, FADE_SECONDS, duration)
-    chainB.curve = buildGainCurve(chainB.regions, chainB.baseGain, FADE_SECONDS, duration)
-    if (playing) {
-      schedule(chainA, getPosition())
-      schedule(chainB, getPosition())
-    }
-  }
-  applyPreset(params.preset)
-
   return {
     async play(fromSeconds) {
       if (ctx.state === 'suspended') await ctx.resume()
       const t0 = ctx.currentTime
-      startSource(chainA, fromSeconds, t0)
-      startSource(chainB, fromSeconds, t0)
-      schedule(chainA, fromSeconds)
-      schedule(chainB, fromSeconds)
+      for (const chain of chains) {
+        startSource(chain, fromSeconds, t0)
+        schedule(chain, fromSeconds)
+      }
       playStartCtxTime = t0
       playStartOffset = fromSeconds
       playing = true
@@ -154,23 +137,24 @@ export function createLivePreviewEngine(params: {
     },
     getPosition,
     isPlaying: () => playing,
-    setRegionsA(regions) {
-      chainA.regions = regions
-      chainA.curve = buildGainCurve(regions, chainA.baseGain, FADE_SECONDS, duration)
-      if (playing) schedule(chainA, getPosition())
+    setSegments(segments, compensated) {
+      const total = chains.length
+      const baseline = togetherBaselineGain(total)
+      for (const chain of chains) {
+        const gainSegments = segments.map((segment) => {
+          if (!segment.includedTracks.includes(chain.id)) {
+            return { start: segment.start, end: segment.end, gain: 0 }
+          }
+          const ratio = compensated ? togetherCompensationRatio(total, segment.includedTracks.length) : 1
+          return { start: segment.start, end: segment.end, gain: baseline * ratio }
+        })
+        chain.curve = buildSegmentGainCurve(gainSegments, FADE_SECONDS, duration)
+        if (playing) schedule(chain, getPosition())
+      }
     },
-    setRegionsB(regions) {
-      chainB.regions = regions
-      chainB.curve = buildGainCurve(regions, chainB.baseGain, FADE_SECONDS, duration)
-      if (playing) schedule(chainB, getPosition())
-    },
-    setPreset: applyPreset,
     dispose() {
       stopAll()
-      chainA.gain.disconnect()
-      chainA.panner.disconnect()
-      chainB.gain.disconnect()
-      chainB.panner.disconnect()
+      for (const chain of chains) chain.gain.disconnect()
     },
   }
 }

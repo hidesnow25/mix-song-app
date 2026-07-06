@@ -9,6 +9,8 @@ interface ExportButtonProps {
   useCompensated: boolean
   onUseCompensatedChange: (value: boolean) => void
   isProcessing: boolean
+  /** "separate" mode's L/R balance is always auto-applied (no toggle), so this option is together-mode only. */
+  showCompensatedOption?: boolean
 }
 
 export function ExportButton({
@@ -20,9 +22,11 @@ export function ExportButton({
   useCompensated,
   onUseCompensatedChange,
   isProcessing,
+  showCompensatedOption = true,
 }: ExportButtonProps) {
   const disabled = !objectUrl || isProcessing
-  const downloadName = `${sanitizeFileName(fileName)}${useCompensated ? '-compensated' : ''}.${exportFormat}`
+  const appliesCompensation = showCompensatedOption && useCompensated
+  const downloadName = `${sanitizeFileName(fileName)}${appliesCompensation ? '-compensated' : ''}.${exportFormat}`
 
   return (
     <div className="export-controls">
@@ -40,20 +44,22 @@ export function ExportButton({
         />
       </div>
 
-      <label className="export-controls__compensated">
-        <input
-          type="checkbox"
-          checked={useCompensated}
-          onChange={(event) => onUseCompensatedChange(event.target.checked)}
-        />
-        音量補正版としてダウンロード
-        <span
-          className="export-controls__info-mark"
-          title="片方だけの音声が残る区間を自動で約1.4倍(+3dB)に底上げします。両方残っている区間との音量差を減らせますが、素材によっては聴き比べの精度が変わったり、音量の大きい素材ではクリッピング（音割れ）が発生することがあります。"
-        >
-          ⓘ
-        </span>
-      </label>
+      {showCompensatedOption && (
+        <label className="export-controls__compensated">
+          <input
+            type="checkbox"
+            checked={useCompensated}
+            onChange={(event) => onUseCompensatedChange(event.target.checked)}
+          />
+          音量補正版としてダウンロード
+          <span
+            className="export-controls__info-mark"
+            title="採用ファイル数が少ない区間を自動で底上げします。採用数が多い区間との音量差を減らせますが、素材によっては聴き比べの精度が変わったり、音量の大きい素材ではクリッピング（音割れ）が発生することがあります。"
+          >
+            ⓘ
+          </span>
+        </label>
+      )}
 
       <div className="export-controls__action-row">
         <select

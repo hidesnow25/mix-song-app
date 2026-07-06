@@ -11,14 +11,13 @@ function isSupportedExportFormat(ext: string): ext is ExportFormat {
   return (SUPPORTED_EXPORT_FORMATS as string[]).includes(ext)
 }
 
-/** Defaults to the primary (A) input's extension, falling back to B's, then WAV. */
-export function defaultExportFormat(fileNameA: string | null, fileNameB: string | null): ExportFormat {
-  const extA = fileNameA ? extensionFromFileName(fileNameA) : ''
-  if (isSupportedExportFormat(extA)) return extA
-
-  const extB = fileNameB ? extensionFromFileName(fileNameB) : ''
-  if (isSupportedExportFormat(extB)) return extB
-
+/** Defaults to the first registered file's extension (in track order), falling back to WAV. */
+export function defaultExportFormat(fileNames: (string | null)[]): ExportFormat {
+  for (const name of fileNames) {
+    if (!name) continue
+    const ext = extensionFromFileName(name)
+    if (isSupportedExportFormat(ext)) return ext
+  }
   return 'wav'
 }
 
@@ -27,13 +26,10 @@ export function baseNameFromFileName(fileName: string): string {
   return ext ? fileName.slice(0, -(ext.length + 1)) : fileName
 }
 
-/** Defaults to "<A>-<B>" (extensions stripped), falling back to whichever single name is available. */
-export function defaultOutputFileName(fileNameA: string | null, fileNameB: string | null): string {
-  const baseA = fileNameA ? baseNameFromFileName(fileNameA) : ''
-  const baseB = fileNameB ? baseNameFromFileName(fileNameB) : ''
-
-  if (baseA && baseB) return `${baseA}-${baseB}`
-  return baseA || baseB || 'mixed-song'
+/** Defaults to all registered file names (extensions stripped) hyphen-joined in track order. */
+export function defaultOutputFileName(fileNames: (string | null)[]): string {
+  const bases = fileNames.filter((name): name is string => Boolean(name)).map(baseNameFromFileName)
+  return bases.length > 0 ? bases.join('-') : 'mixed-song'
 }
 
 const INVALID_FILENAME_CHARS = /[<>:"/\\|?*\x00-\x1f]/g

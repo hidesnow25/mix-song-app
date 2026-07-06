@@ -19,7 +19,7 @@ export function PreviewPlayer({ objectUrl, isProcessing }: PreviewPlayerProps) {
       {objectUrl ? (
         <audio controls src={objectUrl} style={{ width: '100%' }} />
       ) : (
-        <p className="preview-player__hint">2つの音声ファイルを読み込むとここで再生できます</p>
+        <p className="preview-player__hint">音声ファイルを読み込むとここで再生できます</p>
       )}
     </div>
   )

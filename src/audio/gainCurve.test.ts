@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildGainCurve, interpolateGain } from './gainCurve'
+import { buildGainCurve, buildSegmentGainCurve, interpolateGain } from './gainCurve'
 
 describe('buildGainCurve', () => {
   it('produces a flat curve at baseGain when there are no regions', () => {
@@ -48,6 +48,69 @@ describe('buildGainCurve', () => {
     expect(interpolateGain(curve, 2.5)).toBeCloseTo(0, 5)
     expect(interpolateGain(curve, 4.5)).toBeCloseTo(1, 5)
     expect(interpolateGain(curve, 6.5)).toBeCloseTo(0, 5)
+  })
+})
+
+describe('buildSegmentGainCurve', () => {
+  it('holds each segment flat at its own gain, away from boundaries', () => {
+    const curve = buildSegmentGainCurve(
+      [
+        { start: 0, end: 4, gain: 1 },
+        { start: 4, end: 10, gain: 0.5 },
+      ],
+      0.01,
+      10,
+    )
+    expect(interpolateGain(curve, 2)).toBeCloseTo(1, 5)
+    expect(interpolateGain(curve, 7)).toBeCloseTo(0.5, 5)
+  })
+
+  it('fades between segments at a changed boundary', () => {
+    const curve = buildSegmentGainCurve(
+      [
+        { start: 0, end: 4, gain: 0 },
+        { start: 4, end: 10, gain: 1 },
+      ],
+      0.5,
+      10,
+    )
+    expect(interpolateGain(curve, 3)).toBeCloseTo(0, 5)
+    expect(interpolateGain(curve, 4)).toBeCloseTo(0.5, 2) // mid-fade at the boundary
+    expect(interpolateGain(curve, 6)).toBeCloseTo(1, 5)
+  })
+
+  it('does not fade at a boundary where the gain does not change', () => {
+    const curve = buildSegmentGainCurve(
+      [
+        { start: 0, end: 5, gain: 1 },
+        { start: 5, end: 10, gain: 1 },
+      ],
+      0.5,
+      10,
+    )
+    expect(interpolateGain(curve, 5)).toBeCloseTo(1, 5)
+  })
+
+  it('returns a flat zero curve when there are no segments', () => {
+    const curve = buildSegmentGainCurve([], 0.5, 10)
+    expect(interpolateGain(curve, 0)).toBe(0)
+    expect(interpolateGain(curve, 10)).toBe(0)
+  })
+
+  it('shrinks the fade for short segments instead of overshooting into neighbors', () => {
+    const curve = buildSegmentGainCurve(
+      [
+        { start: 0, end: 1, gain: 0 },
+        { start: 1, end: 1.02, gain: 1 },
+        { start: 1.02, end: 10, gain: 0 },
+      ],
+      1,
+      10,
+    )
+    // the middle segment is only 0.02s long, so the fade must be clamped well
+    // below the requested 1s on both sides
+    expect(interpolateGain(curve, 1.005)).toBeGreaterThan(0)
+    expect(interpolateGain(curve, 1.005)).toBeLessThan(1)
   })
 })
 

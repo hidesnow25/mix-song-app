@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { applySilence } from './silence'
-import { presetToMixParams, mixTracks } from './mix'
+import { computeSeparateChannelGains, mixTracks, togetherBaselineGain, togetherCompensationRatio } from './mix'
 import { encodeWavPCM16 } from './wav'
 import { encodeMp3 } from './mp3'
-import { renderMix } from './render'
+import { renderSeparateMix, renderTogetherMix, fillSegmentGaps, type Segment } from './render'
 import { defaultExportFormat, defaultOutputFileName, extensionFromFileName, sanitizeFileName } from './format'
+import type { TrackId } from './trackIds'
 
 describe('applySilence', () => {
   it('returns an unmodified copy when there are no regions', () => {
@@ -44,49 +45,50 @@ describe('applySilence', () => {
   })
 })
 
-describe('presetToMixParams', () => {
-  it('maps "separate" to A-left, B-right stereo separation with both active', () => {
-    expect(presetToMixParams('separate')).toEqual({ panA: 0, volumeA: 1, panB: 1, volumeB: 1 })
-  })
-
-  it('maps "together" to both files centered (audible from both channels)', () => {
-    expect(presetToMixParams('together')).toEqual({ panA: 0.5, volumeA: 1, panB: 0.5, volumeB: 1 })
-  })
-})
-
 describe('mixTracks', () => {
-  it('isolates track A to the left channel and B to the right when panned apart', () => {
+  it('isolates a hard-left track from a hard-right track', () => {
     const a = new Float32Array([0.5, 0.5])
     const b = new Float32Array([0.25, 0.25])
-    const { left, right } = mixTracks(a, 0, 1, b, 1, 1)
+    const { left, right } = mixTracks([
+      { samples: a, gainL: 1, gainR: 0 },
+      { samples: b, gainL: 0, gainR: 1 },
+    ])
     expect(left[0]).toBeCloseTo(0.5, 5)
     expect(right[0]).toBeCloseTo(0.25, 5)
   })
 
-  it('sums both tracks into a single channel when both panned the same way', () => {
+  it('sums multiple tracks into a single channel when all routed the same way', () => {
     const a = new Float32Array([0.3])
     const b = new Float32Array([0.3])
-    const { left, right } = mixTracks(a, 0, 1, b, 0, 1)
+    const { left, right } = mixTracks([
+      { samples: a, gainL: 1, gainR: 0 },
+      { samples: b, gainL: 1, gainR: 0 },
+    ])
     expect(left[0]).toBeCloseTo(0.6, 5)
     expect(right[0]).toBeCloseTo(0, 5)
   })
 
-  it('excludes a track entirely when its volume is 0, regardless of pan', () => {
+  it('excludes a track entirely when both its gains are 0', () => {
     const a = new Float32Array([0.5])
     const b = new Float32Array([0.9])
-    const { left, right } = mixTracks(a, 0, 1, b, 0, 0)
+    const { left, right } = mixTracks([
+      { samples: a, gainL: 1, gainR: 0 },
+      { samples: b, gainL: 0, gainR: 0 },
+    ])
     expect(left[0]).toBeCloseTo(0.5, 5)
     expect(right[0]).toBeCloseTo(0, 5)
   })
 
-  it('produces exactly zero leakage into the opposite channel for hard-panned (0/1) tracks, even after 16-bit PCM quantization', () => {
-    // Regression test: a hard-left-panned track (pan=0) must not audibly bleed
-    // into the right channel. cos(0)=1/sin(0)=0 exactly, so this should hold
-    // bit-for-bit, not just approximately. (Any perceived bleed when listening
-    // to a real export is therefore not from this mixing math — see README.)
+  it('produces exactly zero leakage into the opposite channel for hard-panned tracks, even after 16-bit PCM quantization', () => {
+    // Regression test: a hard-left track (gainR=0) must not audibly bleed
+    // into the right channel. (Any perceived bleed when listening to a real
+    // export is therefore not from this mixing math — see README.)
     const a = new Float32Array(50).fill(1)
     const b = new Float32Array(50).fill(0)
-    const { right } = mixTracks(a, 0, 1, b, 1, 0)
+    const { right } = mixTracks([
+      { samples: a, gainL: 1, gainR: 0 },
+      { samples: b, gainL: 0, gainR: 1 },
+    ])
     expect(right.every((sample) => sample === 0)).toBe(true)
 
     const wav = encodeWavPCM16(new Float32Array(50), right, 1000)
@@ -99,7 +101,10 @@ describe('mixTracks', () => {
   it('pads the shorter track with silence instead of truncating', () => {
     const a = new Float32Array([1, 1, 1])
     const b = new Float32Array([1])
-    const { left, right } = mixTracks(a, 0, 1, b, 1, 1)
+    const { left, right } = mixTracks([
+      { samples: a, gainL: 1, gainR: 0 },
+      { samples: b, gainL: 0, gainR: 1 },
+    ])
     expect(left.length).toBe(3)
     expect(right.length).toBe(3)
     expect(right[1]).toBe(0)
@@ -109,9 +114,75 @@ describe('mixTracks', () => {
   it('clips summed output to [-1, 1]', () => {
     const a = new Float32Array([1])
     const b = new Float32Array([1])
-    const { left } = mixTracks(a, 0.5, 1, b, 0.5, 1)
+    const { left } = mixTracks([
+      { samples: a, gainL: 0.9, gainR: 0.9 },
+      { samples: b, gainL: 0.9, gainR: 0.9 },
+    ])
     expect(left[0]).toBeLessThanOrEqual(1)
     expect(left[0]).toBeGreaterThanOrEqual(-1)
+  })
+
+  it('sums an arbitrary number of tracks (N > 2)', () => {
+    const tracks = [0.1, 0.1, 0.1, 0.1].map((v) => ({ samples: new Float32Array([v]), gainL: 1, gainR: 0 }))
+    const { left } = mixTracks(tracks)
+    expect(left[0]).toBeCloseTo(0.4, 5)
+  })
+})
+
+describe('computeSeparateChannelGains', () => {
+  it('gives each side full gain (1) when exactly one file is checked per side', () => {
+    const gains = computeSeparateChannelGains([
+      { id: 'A', includeLeft: true, includeRight: false },
+      { id: 'B', includeLeft: false, includeRight: true },
+    ])
+    expect(gains.get('A')).toEqual({ gainL: 1, gainR: 0 })
+    expect(gains.get('B')).toEqual({ gainL: 0, gainR: 1 })
+  })
+
+  it('normalizes each side by 1/sqrt(count on that side) when imbalanced', () => {
+    const gains = computeSeparateChannelGains([
+      { id: 'A', includeLeft: true, includeRight: false },
+      { id: 'B', includeLeft: true, includeRight: false },
+      { id: 'C', includeLeft: false, includeRight: true },
+      { id: 'D', includeLeft: false, includeRight: true },
+      { id: 'E', includeLeft: false, includeRight: true },
+      { id: 'F', includeLeft: false, includeRight: true },
+    ])
+    expect(gains.get('A')!.gainL).toBeCloseTo(1 / Math.sqrt(2), 5)
+    expect(gains.get('C')!.gainR).toBeCloseTo(1 / Math.sqrt(4), 5)
+  })
+
+  it('allows a file checked on both sides to be centered', () => {
+    const gains = computeSeparateChannelGains([{ id: 'A', includeLeft: true, includeRight: true }])
+    expect(gains.get('A')).toEqual({ gainL: 1, gainR: 1 })
+  })
+
+  it('gives an unchecked file zero gain on both sides', () => {
+    const gains = computeSeparateChannelGains([{ id: 'A', includeLeft: false, includeRight: false }])
+    expect(gains.get('A')).toEqual({ gainL: 0, gainR: 0 })
+  })
+})
+
+describe('togetherBaselineGain / togetherCompensationRatio', () => {
+  it('reduces to the previous fixed 2-file equal-power center gain (1/sqrt(2))', () => {
+    expect(togetherBaselineGain(2)).toBeCloseTo(1 / Math.sqrt(2), 5)
+  })
+
+  it('matches the previous hardcoded Math.SQRT2 solo-boost constant for 2 total, 1 included', () => {
+    expect(togetherCompensationRatio(2, 1)).toBeCloseTo(Math.SQRT2, 5)
+  })
+
+  it('is 1 (no-op) when every registered track is included', () => {
+    expect(togetherCompensationRatio(4, 4)).toBeCloseTo(1, 5)
+  })
+
+  it('is 1 for a fully-included segment regardless of total, so baseline*ratio = 1/sqrt(included)', () => {
+    for (const total of [1, 2, 3, 6]) {
+      for (let included = 1; included <= total; included++) {
+        const effective = togetherBaselineGain(total) * togetherCompensationRatio(total, included)
+        expect(effective).toBeCloseTo(1 / Math.sqrt(included), 5)
+      }
+    }
   })
 })
 
@@ -166,32 +237,35 @@ describe('format helpers', () => {
     expect(extensionFromFileName('no-extension')).toBe('')
   })
 
-  it('defaults to file A extension when supported', () => {
-    expect(defaultExportFormat('song.mp3', 'other.wav')).toBe('mp3')
+  it('defaults to the first registered file extension when supported', () => {
+    expect(defaultExportFormat(['song.mp3', 'other.wav'])).toBe('mp3')
   })
 
-  it('falls back to file B extension when A is unsupported', () => {
-    expect(defaultExportFormat('song.flac', 'other.mp3')).toBe('mp3')
+  it('falls back to a later file extension when earlier ones are unsupported', () => {
+    expect(defaultExportFormat(['song.flac', 'other.mp3'])).toBe('mp3')
   })
 
-  it('falls back to wav when neither extension is supported', () => {
-    expect(defaultExportFormat('song.flac', 'other.aac')).toBe('wav')
-    expect(defaultExportFormat(null, null)).toBe('wav')
+  it('falls back to wav when no extension is supported', () => {
+    expect(defaultExportFormat(['song.flac', 'other.aac'])).toBe('wav')
+    expect(defaultExportFormat([null, null])).toBe('wav')
+    expect(defaultExportFormat([])).toBe('wav')
   })
 })
 
 describe('defaultOutputFileName', () => {
-  it('joins both base names (extensions stripped) with a hyphen', () => {
-    expect(defaultOutputFileName('voice-a.wav', 'voice-b.wav')).toBe('voice-a-voice-b')
+  it('joins all base names (extensions stripped) with a hyphen', () => {
+    expect(defaultOutputFileName(['voice-a.wav', 'voice-b.wav'])).toBe('voice-a-voice-b')
+    expect(defaultOutputFileName(['a.wav', 'b.wav', 'c.wav', 'd.wav'])).toBe('a-b-c-d')
   })
 
-  it('falls back to whichever single file name is available', () => {
-    expect(defaultOutputFileName('voice-a.wav', null)).toBe('voice-a')
-    expect(defaultOutputFileName(null, 'voice-b.wav')).toBe('voice-b')
+  it('skips unregistered (null) slots', () => {
+    expect(defaultOutputFileName(['voice-a.wav', null])).toBe('voice-a')
+    expect(defaultOutputFileName([null, 'voice-b.wav'])).toBe('voice-b')
   })
 
-  it('falls back to a generic name when neither file is available', () => {
-    expect(defaultOutputFileName(null, null)).toBe('mixed-song')
+  it('falls back to a generic name when no file is available', () => {
+    expect(defaultOutputFileName([null, null])).toBe('mixed-song')
+    expect(defaultOutputFileName([])).toBe('mixed-song')
   })
 })
 
@@ -215,92 +289,128 @@ describe('sanitizeFileName', () => {
   })
 })
 
-describe('renderMix', () => {
-  it('applies silence regions before mixing', () => {
-    const monoA = new Float32Array(20).fill(1)
-    const monoB = new Float32Array(20).fill(1)
-    const result = renderMix({
-      monoA,
-      regionsA: [{ start: 0, end: 0.02 }],
-      panA: 0,
-      volumeA: 1,
-      monoB,
-      regionsB: [],
-      panB: 1,
-      volumeB: 1,
+describe('renderSeparateMix', () => {
+  it('gives a single checked file per side its full gain', () => {
+    const result = renderSeparateMix({
+      tracks: [
+        { id: 'A', mono: new Float32Array([0.5]), includeLeft: true, includeRight: false },
+        { id: 'B', mono: new Float32Array([0.25]), includeLeft: false, includeRight: true },
+      ],
       sampleRate: 1000,
     })
-    // track A silenced entirely (region covers all 20 samples at 1000Hz -> 0.02s)
-    expect(result.left[10]).toBeCloseTo(0, 5)
-    // track B untouched, panned fully right
-    expect(result.right[10]).toBeCloseTo(1, 5)
+    expect(result.left[0]).toBeCloseTo(0.5, 5)
+    expect(result.right[0]).toBeCloseTo(0.25, 5)
     expect(result.sampleRate).toBe(1000)
   })
 
-  it('excludes track B entirely when its volume is 0', () => {
-    const monoA = new Float32Array(10).fill(0.4)
-    const monoB = new Float32Array(10).fill(0.9)
-    const result = renderMix({
-      monoA,
-      regionsA: [],
-      panA: 0,
-      volumeA: 1,
-      monoB,
-      regionsB: [],
-      panB: 0,
-      volumeB: 0,
+  it('applies computeSeparateChannelGains normalization when a side has multiple checked files', () => {
+    const result = renderSeparateMix({
+      tracks: [
+        { id: 'A', mono: new Float32Array([0.2]), includeLeft: true, includeRight: false },
+        { id: 'B', mono: new Float32Array([0.2]), includeLeft: true, includeRight: false },
+        { id: 'C', mono: new Float32Array([0.2]), includeLeft: false, includeRight: true },
+      ],
       sampleRate: 1000,
     })
-    expect(result.left[5]).toBeCloseTo(0.4, 5)
-    expect(result.right[5]).toBeCloseTo(0, 5)
+    const leftGain = 1 / Math.sqrt(2)
+    expect(result.left[0]).toBeCloseTo(0.2 * leftGain * 2, 5)
+    expect(result.right[0]).toBeCloseTo(0.2, 5)
   })
 
-  it('leaves output unchanged when soloBoostFactor is omitted (default, existing behavior)', () => {
-    const monoA = new Float32Array(20).fill(0.3)
-    const monoB = new Float32Array(20).fill(0.3)
-    const withoutBoost = renderMix({
-      monoA,
-      regionsA: [],
-      panA: 0,
-      volumeA: 1,
-      monoB,
-      regionsB: [{ start: 0, end: 0.02 }],
-      panB: 0,
-      volumeB: 1,
+  it('excludes a file entirely when checked on neither side', () => {
+    const result = renderSeparateMix({
+      tracks: [{ id: 'A', mono: new Float32Array([0.5]), includeLeft: false, includeRight: false }],
       sampleRate: 1000,
     })
-    const withDefaultBoost = renderMix({
-      monoA,
-      regionsA: [],
-      panA: 0,
-      volumeA: 1,
-      monoB,
-      regionsB: [{ start: 0, end: 0.02 }],
-      panB: 0,
-      volumeB: 1,
+    expect(result.left[0]).toBeCloseTo(0, 5)
+    expect(result.right[0]).toBeCloseTo(0, 5)
+  })
+})
+
+describe('renderTogetherMix', () => {
+  const BASELINE_2 = 1 / Math.sqrt(2)
+
+  function track(id: TrackId, value: number, length = 20) {
+    return { id, mono: new Float32Array(length).fill(value) }
+  }
+
+  it('silences a track for segments where it is excluded', () => {
+    const result = renderTogetherMix({
+      tracks: [track('A', 1), track('B', 1)],
+      segments: [{ start: 0, end: 0.02, includedTracks: ['B'] }], // A excluded for all 20 samples @ 1000Hz
       sampleRate: 1000,
-      soloBoostFactor: 1,
+      compensated: false,
     })
-    expect(withDefaultBoost.left[10]).toBeCloseTo(withoutBoost.left[10], 5)
+    // A silenced -> only B remains, at baseline gain (no compensation requested)
+    expect(result.left[10]).toBeCloseTo(BASELINE_2, 5)
+    expect(result.right[10]).toBeCloseTo(BASELINE_2, 5)
   })
 
-  it('boosts a track that is playing solo (the other silenced) when soloBoostFactor is set', () => {
-    const monoA = new Float32Array(20).fill(0.3)
-    const monoB = new Float32Array(20).fill(0.3)
-    // B is silenced for the whole range -> A is solo on the left channel there
-    const result = renderMix({
-      monoA,
-      regionsA: [],
-      panA: 0,
-      volumeA: 1,
-      monoB,
-      regionsB: [{ start: 0, end: 0.02 }],
-      panB: 0,
-      volumeB: 1,
+  it('leaves an included track at baseline gain when compensated is false', () => {
+    const result = renderTogetherMix({
+      tracks: [track('A', 0.3), track('B', 0.3)],
+      segments: [{ start: 0, end: 0.02, includedTracks: ['A'] }],
       sampleRate: 1000,
-      soloBoostFactor: 2,
+      compensated: false,
     })
-    expect(result.left[10]).toBeCloseTo(0.6, 5) // 0.3 * 2
-    expect(result.right[10]).toBeCloseTo(0, 5) // B silenced, no boost applies to silence
+    expect(result.left[10]).toBeCloseTo(0.3 * BASELINE_2, 5)
+  })
+
+  it('boosts a solo-included track by togetherCompensationRatio when compensated is true', () => {
+    const result = renderTogetherMix({
+      tracks: [track('A', 0.3), track('B', 0.3)],
+      segments: [{ start: 0, end: 0.02, includedTracks: ['A'] }],
+      sampleRate: 1000,
+      compensated: true,
+    })
+    const ratio = togetherCompensationRatio(2, 1) // == Math.SQRT2
+    // "together" mode plays every track centered (identical gain to both
+    // channels), so left and right carry the same mono downmix.
+    expect(result.left[10]).toBeCloseTo(0.3 * BASELINE_2 * ratio, 5)
+    expect(result.right[10]).toBeCloseTo(0.3 * BASELINE_2 * ratio, 5)
+  })
+
+  it('treats any trailing time not covered by segments as "all tracks included"', () => {
+    const result = renderTogetherMix({
+      tracks: [track('A', 0.3), track('B', 0.3)],
+      segments: [],
+      sampleRate: 1000,
+      compensated: true,
+    })
+    // No segments recorded yet -> whole duration defaults to all-included, ratio=1
+    expect(result.left[10]).toBeCloseTo(2 * 0.3 * BASELINE_2, 5)
+  })
+
+  it('generalizes baseline gain to more than 2 registered tracks', () => {
+    const result = renderTogetherMix({
+      tracks: [track('A', 0.3), track('B', 0.3), track('C', 0.3), track('D', 0.3)],
+      segments: [],
+      sampleRate: 1000,
+      compensated: false,
+    })
+    const baseline4 = togetherBaselineGain(4)
+    expect(result.left[10]).toBeCloseTo(4 * 0.3 * baseline4, 5)
+  })
+})
+
+describe('fillSegmentGaps', () => {
+  it('returns a single all-tracks segment when nothing has been recorded', () => {
+    expect(fillSegmentGaps([], 10, ['A', 'B'])).toEqual([{ start: 0, end: 10, includedTracks: ['A', 'B'] }])
+  })
+
+  it('fills the trailing gap after the last recorded segment with all tracks included', () => {
+    const filled = fillSegmentGaps([{ start: 0, end: 4, includedTracks: ['A'] }], 10, ['A', 'B'])
+    expect(filled).toEqual([
+      { start: 0, end: 4, includedTracks: ['A'] },
+      { start: 4, end: 10, includedTracks: ['A', 'B'] },
+    ])
+  })
+
+  it('leaves a fully-covered segment list unchanged', () => {
+    const segments: Segment[] = [
+      { start: 0, end: 5, includedTracks: ['A'] },
+      { start: 5, end: 10, includedTracks: ['B'] },
+    ]
+    expect(fillSegmentGaps(segments, 10, ['A', 'B'])).toEqual(segments)
   })
 })

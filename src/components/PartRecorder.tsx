@@ -1,20 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { WaveformCanvas, type ColoredRegion } from './WaveformCanvas'
+import { TRACK_COLORS } from '../audio/trackColors'
+import type { TrackId } from '../audio/trackIds'
 import type { usePartRecorder } from '../hooks/usePartRecorder'
 
-// Colors reflect which file remains audible, not which was muted: muting A
-// leaves only B audible (orange), muting B leaves only A audible (blue).
-const MUTE_COLORS: Record<'A' | 'B' | 'none', string> = {
-  A: 'rgba(249, 115, 22, 0.35)',
-  B: 'rgba(59, 130, 246, 0.35)',
-  none: 'rgba(236, 72, 153, 0.35)',
-}
 const TENTATIVE_COLOR = 'rgba(124, 58, 237, 0.35)'
 const NUDGE_SECONDS = 0.1
 
 interface PartRecorderProps {
-  monoA: Float32Array | null
-  monoB: Float32Array | null
+  tracks: { id: TrackId; mono: Float32Array; fileName: string }[]
   previewSamples: { left: Float32Array; right: Float32Array } | null
   recorder: ReturnType<typeof usePartRecorder>
 }
@@ -75,9 +69,10 @@ function TimeField({
   )
 }
 
-export function PartRecorder({ monoA, monoB, previewSamples, recorder }: PartRecorderProps) {
+export function PartRecorder({ tracks, previewSamples, recorder }: PartRecorderProps) {
   const {
     parts,
+    pendingIncludedTracks,
     duration,
     recordingStart,
     recordingEnd,
@@ -96,6 +91,9 @@ export function PartRecorder({ monoA, monoB, previewSamples, recorder }: PartRec
     nudgeEnd,
     jumpEndToDuration,
     resolveOverlap,
+    togglePendingTrack,
+    selectAllPending,
+    deselectAllPending,
     commit,
     reset,
   } = recorder
@@ -105,16 +103,20 @@ export function PartRecorder({ monoA, monoB, previewSamples, recorder }: PartRec
   if (!isReady) {
     return (
       <section className="part-recorder">
-        <p className="part-recorder__hint">2つの音声ファイルを読み込むとパート分けができます</p>
+        <p className="part-recorder__hint">音声ファイルを読み込むとパート分けができます</p>
       </section>
     )
   }
 
   const tentativeRegion: ColoredRegion[] =
-    recordingEnd !== null ? [{ start: recordingStart, end: recordingEnd, color: TENTATIVE_COLOR }] : []
+    recordingEnd !== null ? [{ start: recordingStart, end: recordingEnd, colors: [TENTATIVE_COLOR] }] : []
 
   const previewRegions: ColoredRegion[] = [
-    ...parts.map((part) => ({ start: part.start, end: part.end, color: MUTE_COLORS[part.mute] })),
+    ...parts.map((part) => ({
+      start: part.start,
+      end: part.end,
+      colors: part.includedTracks.map((id) => TRACK_COLORS[id]),
+    })),
     ...tentativeRegion,
   ]
 
@@ -122,20 +124,16 @@ export function PartRecorder({ monoA, monoB, previewSamples, recorder }: PartRec
 
   return (
     <section className="part-recorder">
-      <WaveformCanvas
-        label="音声ファイル A"
-        samples={monoA}
-        duration={duration}
-        regions={tentativeRegion}
-        playheadPosition={playhead}
-      />
-      <WaveformCanvas
-        label="音声ファイル B"
-        samples={monoB}
-        duration={duration}
-        regions={tentativeRegion}
-        playheadPosition={playhead}
-      />
+      {tracks.map(({ id, mono, fileName }) => (
+        <WaveformCanvas
+          key={id}
+          label={`音声ファイル ${id}: ${fileName}`}
+          samples={mono}
+          duration={duration}
+          regions={tentativeRegion}
+          playheadPosition={playhead}
+        />
+      ))}
       <WaveformCanvas
         label="プレビュー"
         samples={previewMono}
@@ -189,7 +187,7 @@ export function PartRecorder({ monoA, monoB, previewSamples, recorder }: PartRec
       {recordingEnd !== null && !overlapPending && (
         <div className="part-recorder__decision">
           <p className="part-recorder__decision-label">
-            {recordingStart.toFixed(1)}秒 〜 {recordingEnd.toFixed(1)}秒 の区間をどうしますか？
+            {recordingStart.toFixed(1)}秒 〜 {recordingEnd.toFixed(1)}秒 の区間に含める音声ファイルを選んでください
           </p>
           <button
             type="button"
@@ -199,29 +197,33 @@ export function PartRecorder({ monoA, monoB, previewSamples, recorder }: PartRec
           >
             {isPreviewMode ? '■ 停止' : '▶ この範囲を試聴'}
           </button>
-          <button
-            type="button"
-            className="part-recorder__decision-button part-recorder__decision-button--a"
-            disabled={isPlaying}
-            onClick={() => commit('A')}
-          >
-            Aの音声を消す
-          </button>
-          <button
-            type="button"
-            className="part-recorder__decision-button part-recorder__decision-button--b"
-            disabled={isPlaying}
-            onClick={() => commit('B')}
-          >
-            Bの音声を消す
-          </button>
-          <button
-            type="button"
-            className="part-recorder__decision-button part-recorder__decision-button--none"
-            disabled={isPlaying}
-            onClick={() => commit('none')}
-          >
-            両方残す
+
+          <div className="part-recorder__checkbox-actions">
+            <button type="button" onClick={selectAllPending} disabled={isPlaying}>
+              全選択
+            </button>
+            <button type="button" onClick={deselectAllPending} disabled={isPlaying}>
+              全解除
+            </button>
+          </div>
+
+          <div className="part-recorder__checkboxes">
+            {tracks.map(({ id, fileName }) => (
+              <label key={id} className="part-recorder__checkbox" style={{ borderColor: TRACK_COLORS[id] }}>
+                <input
+                  type="checkbox"
+                  checked={pendingIncludedTracks.includes(id)}
+                  disabled={isPlaying}
+                  onChange={() => togglePendingTrack(id)}
+                />
+                <span className="part-recorder__checkbox-swatch" style={{ background: TRACK_COLORS[id] }} />
+                {id}: {fileName}
+              </label>
+            ))}
+          </div>
+
+          <button type="button" className="part-recorder__confirm-button" disabled={isPlaying} onClick={commit}>
+            この区間を確定する
           </button>
         </div>
       )}

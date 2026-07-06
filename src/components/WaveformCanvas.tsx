@@ -4,7 +4,8 @@ import { computePeaks } from '../audio/peaks'
 export interface ColoredRegion {
   start: number
   end: number
-  color: string
+  /** One color per included file; rendered as equal-height stacked bands so multiple files show as distinct rows rather than one blended color. */
+  colors: string[]
 }
 
 interface WaveformCanvasProps {
@@ -65,8 +66,11 @@ export function WaveformCanvas({
       for (const region of regions) {
         const x1 = (region.start / duration) * width
         const x2 = (region.end / duration) * width
-        ctx.fillStyle = region.color
-        ctx.fillRect(x1, 0, Math.max(1, x2 - x1), height)
+        const bandHeight = height / Math.max(1, region.colors.length)
+        region.colors.forEach((color, i) => {
+          ctx.fillStyle = color
+          ctx.fillRect(x1, i * bandHeight, Math.max(1, x2 - x1), bandHeight)
+        })
       }
     }
 

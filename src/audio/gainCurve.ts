@@ -35,6 +35,42 @@ export function buildGainCurve(
   return points
 }
 
+/**
+ * Generalizes buildGainCurve to an arbitrary sequence of contiguous segments,
+ * each with its own target gain (not just baseGain/0) — used to schedule a
+ * track's live-preview gain across "together"-mode part-recorder segments,
+ * where each segment can include a different subset of tracks and therefore
+ * a different compensation gain. Segments are expected to fully cover
+ * [0, duration] with no gaps (see render.ts's fillSegmentGaps); a short
+ * linear fade is inserted at boundaries where the gain actually changes.
+ */
+export function buildSegmentGainCurve(
+  segments: { start: number; end: number; gain: number }[],
+  fadeSeconds: number,
+  duration: number,
+): GainBreakpoint[] {
+  const sorted = [...segments].sort((a, b) => a.start - b.start)
+  if (sorted.length === 0) return [{ time: 0, value: 0 }, { time: duration, value: 0 }]
+
+  const points: GainBreakpoint[] = [{ time: 0, value: sorted[0].gain }]
+
+  for (let i = 0; i < sorted.length; i++) {
+    const segment = sorted[i]
+    const next = sorted[i + 1]
+
+    if (!next || next.gain === segment.gain) {
+      points.push({ time: segment.end, value: segment.gain })
+      continue
+    }
+
+    const fade = Math.min(fadeSeconds, (segment.end - segment.start) / 2, (next.end - next.start) / 2)
+    points.push({ time: segment.end - fade, value: segment.gain })
+    points.push({ time: segment.end + fade, value: next.gain })
+  }
+
+  return points
+}
+
 /** Piecewise-linear lookup of a gain curve at an arbitrary point in time. */
 export function interpolateGain(curve: GainBreakpoint[], time: number): number {
   if (curve.length === 0) return 0
