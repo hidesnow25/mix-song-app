@@ -6,7 +6,7 @@ export const TRACK_COLORS: Record<TrackId, string> = {
   A: '#3b82f6',
   B: '#f97316',
   C: '#ec4899',
-  D: '#22c55e',
-  E: '#ef4444',
+  D: '#ef4444',
+  E: '#22c55e',
   F: '#9ca3af',
 }
